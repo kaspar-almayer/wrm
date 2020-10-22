@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Document</title>
+    <link rel="stylesheet" href="./lib/leaflet//leaflet.css" />
+    <script src="./lib/leaflet/leaflet.js"></script>
+
+    <style>
+      body {
+        padding: 0;
+        margin: 0;
+      }
+      #mapid {
+        height: 100vh;
+      }
+      .clock {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        font-size: 40px;
+        color: #dc143c;
+        z-index: 100000;
+      }
+      .welcome {
+        position: fixed;
+        width: 80vw;
+        height: 80vh;
+        top: 10vh;
+        right: 10vw;
+        background-color: #fff;
+        z-index: 1000000;
+        text-align: center;
+        padding-top: 50px;
+      }
+    </style>
+    <!-- <script src="http://d3js.org/d3.v3.min.js" type="text/javascript"></script> -->
+    <script src="./lib/d3/d3.min.js" type="text/javascript"></script>
+    <script src="stations.js"></script>
+    <script src="trips.js"></script>
+  </head>
+  <body>
+    <div class="clock"></div>
+    <div class="welcome">
+      <h1>Dzień z życia WRM (a dokładnie 10 Grudnia 2019)</h1>
+      <p>
+        Dane z
+        <a href="https://www.wroclaw.pl/open-data/"
+          >https://www.wroclaw.pl/open-data/</a
+        >
+      </p>
+      <button onclick="start();">Start</button>
+    </div>
+    <div id="mapid"></div>
+
+    <script>
+      const noStation = "Poza oficjalną stacją";
+      function findStationLatLng(station) {
+        console.log(station);
+
+        const selectedStation = stations.result.records.find(
+          (s) => s.name == station
+        );
+        return [selectedStation.lat, selectedStation.lng];
+      }
+
+      function makeTrip(trip) {
+        if (!trip) {
+          return;
+        }
+        return trip.map((trip) => ({
+          time: trip["Data wynajmu"],
+          start: findStationLatLng(trip["Stacja wynajmu"]),
+          end: findStationLatLng(trip["Stacja zwrotu"]),
+        }));
+      }
+
+      var map = L.map("mapid").setView([51.105, 17.046], 13);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(map);
+
+      L.svg().addTo(map);
+
+      // Select the svg area and add circles:
+      d3.select("#mapid")
+        .select("svg")
+        .selectAll("myCircles")
+        .data(stations.result.records)
+        .enter()
+        .append("circle")
+        .attr("cx", function (d) {
+          return map.latLngToLayerPoint([d.lat, d.lng]).x;
+        })
+        .attr("cy", function (d) {
+          return map.latLngToLayerPoint([d.lat, d.lng]).y;
+        })
+        .attr("r", 3)
+        .style("fill", "red")
+        .attr("stroke", "red")
+        .attr("stroke-width", 2)
+        .attr("fill-opacity", 0.4);
+
+      // Function that update circle position if something change
+      function update() {
+        d3.selectAll("circle")
+          .attr("cx", function (d) {
+            return map.latLngToLayerPoint([d.lat, d.lng]).x;
+          })
+          .attr("cy", function (d) {
+            return map.latLngToLayerPoint([d.lat, d.lng]).y;
+          });
+      }
+
+      // If the user change the map (zoom or drag), I update circle position:
+      map.on("moveend", update);
+
+      function addLine(trip, index) {
+        if (!trip) {
+          return;
+        }
+        trip.forEach((trip) => {
+          const line = d3
+            .select("#mapid")
+            .select("svg")
+            .append("line")
+            .style("stroke", "tomato")
+            .style("stroke-width", 3)
+            .style("stroke-opacity", 1)
+            .attr("x1", map.latLngToLayerPoint(trip.start).x)
+            .attr("y1", map.latLngToLayerPoint(trip.start).y)
+            .attr("x2", map.latLngToLayerPoint(trip.end).x)
+            .attr("y2", map.latLngToLayerPoint(trip.end).y);
+
+          const totalLength = line.node().getTotalLength();
+
+          line
+            .attr("stroke-dasharray", totalLength + " " + totalLength)
+            .attr("stroke-dashoffset", totalLength)
+            .transition()
+            .duration(1000)
+            //.ease(d3.easeCubic)
+            .attr("stroke-dashoffset", 0)
+            .transition()
+            .delay(500)
+            .duration(500)
+            .style("stroke-opacity", 0)
+            .remove();
+        });
+      }
+
+      let time = 0;
+      const dayInSeconds = 86400;
+      const dayInMinutes = 1440;
+      const clock = document.querySelector(".clock");
+
+      const start = () => {
+        document.querySelector(".welcome").style.display = "none";
+        let timerId = setInterval(() => {
+          time++;
+          tick(time);
+          const trip = trips.result.records.filter(
+            (trip) => getMinutes(trip["Data wynajmu"]) === time
+          );
+          addLine(makeTrip(trip), time);
+          if (time > dayInMinutes) {
+            clearInterval(timerId);
+          }
+        }, 20);
+      };
+
+      function getMinutes(time) {
+        const hours = time.split("T")[1].split(":");
+        return Number(hours[0]) * 60 + Number(hours[1]);
+      }
+
+      function tick(time) {
+        clock.innerHTML = formatTime(time);
+      }
+
+      function formatTime(time) {
+        var hours = Math.floor(time / 60);
+        var minutes = Math.floor(time - hours * 60);
+        //var seconds = time - hours * 3600 - minutes * 60;
+
+        if (hours < 10) {
+          hours = "0" + hours;
+        }
+        if (minutes < 10) {
+          minutes = "0" + minutes;
+        }
+
+        return hours + ":" + minutes;
+      }
+    </script>
+  </body>
+</html>
